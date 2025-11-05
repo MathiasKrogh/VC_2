@@ -62,6 +62,8 @@ add_executable(VC_2_app
     common/Quad.hpp
     common/Filters.cpp
     common/Filters.hpp
+    common/Transformation.cpp
+    common/Transformation.hpp
     common/PixelationShader.cpp
     common/PixelationShader.hpp
     src/webcamQuad.cpp

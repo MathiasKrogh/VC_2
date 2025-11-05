@@ -2,10 +2,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Whatever",
+            "name": "VC_2_app",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Debug/Whatever",
+            "program": "${workspaceFolder}/build/Debug/VC_2_app",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/Debug",

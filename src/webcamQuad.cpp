@@ -24,6 +24,7 @@ using namespace glm;
 #include <common/Quad.hpp>
 #include <common/Texture.hpp>
 #include <common/Filters.hpp>
+#include <common/Transformation.hpp>
 #include <common/PixelationShader.hpp>
 
 using namespace std;
@@ -48,7 +49,7 @@ std::chrono::steady_clock::time_point lastFPSTime;
 // Runtime transform parameters
 float translateX = 0.0f;
 float translateY = 0.0f;
-float rotateX = 0.0f;
+float rotateZ = 0.0f;  // Changed from rotateX to rotateZ
 float scaleFactor = 1.0f;
 
 // Mouse interaction state
@@ -75,8 +76,9 @@ int main(void) {
     cout << "Camera opened successfully." << endl;
 
     // Optional: Set camera resolution for testing different resolutions
-    // cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
-    // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+    cap.set(cv::CAP_PROP_FPS, 60);
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
 
     // --- Step 2: Initialize OpenGL context (GLFW & GLAD) ---
     if (!initWindow("Real-time Video Processing - Assignment 2")) return -1;
@@ -148,8 +150,9 @@ int main(void) {
     // Initialize FPS tracking
     lastFPSTime = std::chrono::steady_clock::now();
     
-    // Buffer for CPU-processed frames
+    // Buffers for CPU-processed frames
     cv::Mat processedFrame;
+    cv::Mat transformedFrame;
 
     // Print control instructions
     printControls();
@@ -170,23 +173,35 @@ int main(void) {
         if (!frame.empty() && videoTexture != nullptr) {
             cv::flip(frame, frame, 0); // Flip for OpenGL coordinate system
             
-            // Apply CPU filters if in CPU mode
+            // Apply CPU processing if in CPU mode
             if (currentMode == ProcessingMode::CPU) {
+                // Step 1: Apply filter on CPU
                 switch (currentFilter) {
                     case FilterType::SINCITY:
                         Filters::applySinCity(frame, processedFrame);
-                        frame = processedFrame;
                         break;
                     case FilterType::PIXELATION:
                         Filters::applyPixelation(frame, processedFrame, pixelSize);
-                        frame = processedFrame;
                         break;
                     case FilterType::NONE:
                     default:
-                        // No processing needed
+                        processedFrame = frame.clone();
                         break;
                 }
+                
+                // Step 2: Apply geometric transformation on CPU
+                // Convert translation from normalized coordinates to pixels
+                // translateX/Y are in normalized space (-1 to 1 roughly), 
+                // so we scale them to pixel space
+                float txPixels = translateX * frame.cols / 2.0f;
+                float tyPixels = -translateY * frame.rows / 2.0f;  // Invert Y for OpenCV
+                
+                Transformation::applyCombinedTransform(processedFrame, transformedFrame,
+                                                      txPixels, tyPixels, 
+                                                      rotateZ, scaleFactor);
+                frame = transformedFrame;
             }
+            
             // Update GPU texture with (potentially processed) frame
             videoTexture->update(frame.data, frame.cols, frame.rows, true);
         } else {
@@ -195,10 +210,9 @@ int main(void) {
 
         // --- Select and manually bind the appropriate shader ---
         
-        // We need to manually set which shader the quad will use
-        // by directly modifying its shader pointer (hacky but necessary due to setShader deleting)
         if (currentMode == ProcessingMode::GPU) {
             // GPU mode: use appropriate shader for filtering
+            // Transformations are handled by OpenGL matrices below
             switch (currentFilter) {
                 case FilterType::SINCITY:
                     currentShader = sinCityShader;
@@ -212,20 +226,25 @@ int main(void) {
                     currentShader = passthroughShader;
                     break;
             }
+            
+            // Apply GPU transformations via OpenGL matrices
+            myQuad->setTranslate(glm::vec3(translateX, translateY, 0.0f));
+            myQuad->setRotate(rotateZ);  // Now rotates around Z-axis (in-plane)
+            myQuad->setScale(scaleFactor);
+            
         } else {
-            // CPU mode: always use passthrough shader (filtering done on CPU)
+            // CPU mode: transformations already applied above
+            // Use passthrough shader and reset transformations to identity
             currentShader = passthroughShader;
+            myQuad->setTranslate(glm::vec3(0.0f, 0.0f, 0.0f));
+            myQuad->setRotate(0.0f);
+            myQuad->setScale(1.0f);
         }
 
         // --- Render with the selected shader ---
         try {
             // Manually bind the shader we want to use
             currentShader->bind();
-
-            // Apply runtime transformations
-            myQuad->setTranslate(glm::vec3(translateX, translateY, 0.0f));
-            myQuad->setRotate(rotateX);       // single axis rotation
-            myQuad->setScale(scaleFactor);
             
             // Update matrices
             glm::mat4 ModelMatrix = myQuad->getTransform();
@@ -254,6 +273,8 @@ int main(void) {
             string filter = "None";
             if (currentFilter == FilterType::SINCITY) filter = "Sin City";
             else if (currentFilter == FilterType::PIXELATION) filter = "Pixelation (size: " + to_string(pixelSize) + ")";
+            
+            cout << "FPS: " << fps << " | Mode: " << mode << " | Filter: " << filter << endl;
         }
 
         // Swap buffers and poll events
@@ -289,7 +310,7 @@ bool initWindow(std::string windowName){
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    window = glfwCreateWindow(1024, 768, windowName.c_str(), NULL, NULL);
+    window = glfwCreateWindow(1920, 1080, windowName.c_str(), NULL, NULL);
     if (window == NULL){
         fprintf(stderr, "Failed to open GLFW window.\n");
         glfwTerminate();
@@ -326,6 +347,28 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             currentMode = ProcessingMode::CPU;
             cout << "\n>>> Mode: CPU Processing" << endl;
             break;
+        case GLFW_KEY_EQUAL:  // + key
+        case GLFW_KEY_KP_ADD:
+            if (currentFilter == FilterType::PIXELATION) {
+                pixelSize = std::min(pixelSize + 2, 50);
+                cout << "Pixel size: " << pixelSize << endl;
+            }
+            break;
+        case GLFW_KEY_MINUS:  // - key
+        case GLFW_KEY_KP_SUBTRACT:
+            if (currentFilter == FilterType::PIXELATION) {
+                pixelSize = std::max(pixelSize - 2, 2);
+                cout << "Pixel size: " << pixelSize << endl;
+            }
+            break;
+        case GLFW_KEY_R:
+            // Reset transformations
+            translateX = 0.0f;
+            translateY = 0.0f;
+            rotateZ = 0.0f;
+            scaleFactor = 1.0f;
+            cout << "\n>>> Transformations reset" << endl;
+            break;
         case GLFW_KEY_H:
             printControls();
             break;
@@ -355,8 +398,8 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     const float scaleSpeed = 0.1f;       // How fast zoom reacts
 
     if (rightMouseButtonPressed) {
-        // Rotate X-axis
-        rotateX += static_cast<float>(yoffset) * rotateSpeed;
+        // Rotate around Z-axis (in-plane rotation)
+        rotateZ += static_cast<float>(yoffset) * rotateSpeed;
     } else if (leftMouseButtonPressed) {
         // Translate
         translateY += static_cast<float>(yoffset) * translateSpeed;
@@ -379,9 +422,15 @@ void printControls() {
     cout << "  1       - No filter (passthrough)" << endl;
     cout << "  2       - Sin City filter" << endl;
     cout << "  3       - Pixelation filter" << endl;
+    cout << "  +/-     - Increase/decrease pixel size (when pixelation active)" << endl;
     cout << "\nPROCESSING MODE:" << endl;
-    cout << "  G       - GPU processing (shaders)" << endl;
-    cout << "  C       - CPU processing (OpenCV)" << endl;
+    cout << "  G       - GPU processing (shaders + OpenGL transforms)" << endl;
+    cout << "  C       - CPU processing (OpenCV filters + transforms)" << endl;
+    cout << "\nTRANSFORMATIONS:" << endl;
+    cout << "  Scroll        - Scale (zoom in/out)" << endl;
+    cout << "  Left + Scroll - Translate (move around)" << endl;
+    cout << "  Right + Scroll- Rotate (in-plane rotation)" << endl;
+    cout << "  R             - Reset all transformations" << endl;
     cout << "\nOTHER:" << endl;
     cout << "  H       - Show this help" << endl;
     cout << "  ESC     - Exit application" << endl;

@@ -59,8 +59,8 @@ class Object{
         /*! Set defined scale this object. */
         void setScale(float scale);
         //! setRotate
-        /*! Set defined rotation  */
-        void setRotate(float xDegrees);
+        /*! Set defined rotation around Z-axis*/
+        void setRotate(float zDegrees);
         //! bindShaders
         /*! Bind shader of this object. */
         void bindShaders();

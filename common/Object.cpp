@@ -41,7 +41,6 @@ void Object::setTranslate(glm::vec3 translateVec){
     transMat = glm::translate(glm::mat4(1.0), translateVec);
     // Build the model matrix -get from object
     transform = transMat * rotMat * scaleMat;
-    
 }
 void Object::setScale(float scale){
     scaleMat = glm::scale(glm::mat4(1.0), glm::vec3(scale));
@@ -49,7 +48,7 @@ void Object::setScale(float scale){
     transform = transMat * rotMat * scaleMat;
 }
 void Object::setRotate(float zDegrees){
-    // Rotate around Z-axis (in-plane rotation, perpendicular to screen)
+    // Rotate around Z-axis
     float radians = glm::radians(zDegrees);
     rotMat = glm::rotate(glm::mat4(1.0), radians, glm::vec3(0.0f, 0.0f, 1.0f));
     transform = transMat * rotMat * scaleMat;

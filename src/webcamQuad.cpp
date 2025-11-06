@@ -52,6 +52,12 @@ float translateY = 0.0f;
 float rotateZ = 0.0f;  // Changed from rotateX to rotateZ
 float scaleFactor = 1.0f;
 
+// Original transform parameters (for reset)
+const float originalX = 0.0f;
+const float originalY = 0.0f;
+const float originalZ = 0.0f;  // Changed from rotateX to rotateZ
+const float originalScale = 1.0f;
+
 // Mouse interaction state
 bool leftMouseButtonPressed = false;
 bool rightMouseButtonPressed = false;
@@ -77,8 +83,15 @@ int main(void) {
 
     // Optional: Set camera resolution for testing different resolutions
     cap.set(cv::CAP_PROP_FPS, 60);
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+
+    double width = cap.get(cv::CAP_PROP_FRAME_WIDTH);
+    double height = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
+    double fps = cap.get(cv::CAP_PROP_FPS);
+
+    std::cout << "Camera default: " << width << "x" << height 
+            << " @ " << fps << " fps" << std::endl;
 
     // --- Step 2: Initialize OpenGL context (GLFW & GLAD) ---
     if (!initWindow("Real-time Video Processing - Assignment 2")) return -1;
@@ -193,13 +206,18 @@ int main(void) {
                 // Convert translation from normalized coordinates to pixels
                 // translateX/Y are in normalized space (-1 to 1 roughly), 
                 // so we scale them to pixel space
-                float txPixels = translateX * frame.cols / 2.0f;
-                float tyPixels = -translateY * frame.rows / 2.0f;  // Invert Y for OpenCV
-                
-                Transformation::applyCombinedTransform(processedFrame, transformedFrame,
-                                                      txPixels, tyPixels, 
-                                                      rotateZ, scaleFactor);
-                frame = transformedFrame;
+                if (translateX != originalX || translateY != originalY ||
+                    rotateZ != originalZ || scaleFactor != originalScale) {
+                    float txPixels = translateX * frame.cols / 2.0f;
+                    float tyPixels = -translateY * frame.rows / 2.0f;  // Invert Y for OpenCV
+                    
+                    Transformation::applyCombinedTransform(processedFrame, transformedFrame,
+                                                        txPixels, tyPixels, 
+                                                        rotateZ, scaleFactor);
+                    frame = transformedFrame;
+                } else {
+                    frame = processedFrame;
+                }
             }
             
             // Update GPU texture with (potentially processed) frame
@@ -228,10 +246,17 @@ int main(void) {
             }
             
             // Apply GPU transformations via OpenGL matrices
-            myQuad->setTranslate(glm::vec3(translateX, translateY, 0.0f));
-            myQuad->setRotate(rotateZ);  // Now rotates around Z-axis (in-plane)
-            myQuad->setScale(scaleFactor);
-            
+            if (translateX != originalX || translateY != originalY ||
+                rotateZ != originalZ || scaleFactor != originalScale) {
+                // Reset to identity before applying new transforms
+                myQuad->setTranslate(glm::vec3(0.0f, 0.0f, 0.0f));
+                myQuad->setRotate(0.0f);
+                myQuad->setScale(1.0f);
+
+                myQuad->setTranslate(glm::vec3(translateX, translateY, 0.0f));
+                myQuad->setRotate(rotateZ);  // Now rotates around Z-axis (in-plane)
+                myQuad->setScale(scaleFactor);
+            }
         } else {
             // CPU mode: transformations already applied above
             // Use passthrough shader and reset transformations to identity
@@ -346,20 +371,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         case GLFW_KEY_C:
             currentMode = ProcessingMode::CPU;
             cout << "\n>>> Mode: CPU Processing" << endl;
-            break;
-        case GLFW_KEY_EQUAL:  // + key
-        case GLFW_KEY_KP_ADD:
-            if (currentFilter == FilterType::PIXELATION) {
-                pixelSize = std::min(pixelSize + 2, 50);
-                cout << "Pixel size: " << pixelSize << endl;
-            }
-            break;
-        case GLFW_KEY_MINUS:  // - key
-        case GLFW_KEY_KP_SUBTRACT:
-            if (currentFilter == FilterType::PIXELATION) {
-                pixelSize = std::max(pixelSize - 2, 2);
-                cout << "Pixel size: " << pixelSize << endl;
-            }
             break;
         case GLFW_KEY_R:
             // Reset transformations
